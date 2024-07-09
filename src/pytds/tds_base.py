@@ -51,6 +51,10 @@ def IS_TDS73_PLUS(x: _TdsSession):
     return x.tds_version >= TDS73A
 
 
+def IS_TDS74_PLUS(x: _TdsSession):
+    return x.tds_version >= TDS74
+
+
 # https://msdn.microsoft.com/en-us/library/dd304214.aspx
 class PacketType:
     QUERY = 1
