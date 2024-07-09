@@ -12,8 +12,11 @@ import base64
 import ctypes
 import logging
 import socket
+import struct
 
 from pytds.tds_base import AuthProtocol
+
+from itertools import chain, repeat
 
 logger = logging.getLogger(__name__)
 
@@ -226,6 +229,50 @@ class KerberosAuth(AuthProtocol):
             data = self._kerberos.authGSSClientResponse(self._context)
             logger.info("created client GSS packet %s", data)
             return base64.b64decode(data)
+
+    def close(self) -> None:
+        pass
+
+class TokenAuth(AuthProtocol):
+    """
+        Authentication using Security Token Extension TDS 7.4+
+    """
+    def __init__(self, token: str, utf8Support=True, echoFedAuth=True) -> None:
+        self._token = token
+        self._utf8Support = utf8Support
+        self._echoFedAuth = echoFedAuth
+
+    def create_packet(self) -> bytes:
+        
+        class FEDAUTH_OPTIONS:
+            FEATURE_ID = 0x02
+            LIBRARY_SECURITYTOKEN = 0x01
+            FEDAUTH_YES_ECHO = 0x01
+            FEDAUTH_NO_ECHO = 0x00
+        UTF8_SUPPORT_FEATURE_ID = 0x0A
+        UTF8_SUPPORT_FEATURE_SIZE = 0x01
+        UTF8_SUPPORT_CLIENT_SUPPORTS_UTF8 = 0x01
+        encoded_bytes = bytes(chain.from_iterable((b, 0) for b in self._token.encode())) 
+        length = len(encoded_bytes)
+        buffer = bytearray()  
+        buffer.extend(struct.pack("B", FEDAUTH_OPTIONS.FEATURE_ID))  
+        buffer.extend(struct.pack("<I", length + 4 + 1))  
+        buffer.extend(struct.pack("B", (FEDAUTH_OPTIONS.LIBRARY_SECURITYTOKEN << 1) |   
+                                  (FEDAUTH_OPTIONS.FEDAUTH_YES_ECHO if self._echoFedAuth else FEDAUTH_OPTIONS.FEDAUTH_NO_ECHO)))  
+        buffer.extend(struct.pack("<I", length))  
+        buffer.extend(encoded_bytes)  
+  
+        if self._utf8Support:  
+            buffer.extend(struct.pack("B", UTF8_SUPPORT_FEATURE_ID))  
+            buffer.extend(struct.pack("<I", UTF8_SUPPORT_FEATURE_SIZE))  
+            buffer.extend(struct.pack("B", UTF8_SUPPORT_CLIENT_SUPPORTS_UTF8))  
+  
+        buffer.extend(struct.pack("B", 0xFF))  # TERMINATOR  
+  
+        return bytes(buffer)
+
+    def handle_next(self, packet: bytes) -> bytes | None:
+        return None
 
     def close(self) -> None:
         pass
